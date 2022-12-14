@@ -46,7 +46,7 @@
     "@types/glob": "8.0.0",
     "@types/mime": "3.0.1",
     "@types/mocha": "9.1.1",
-    "@types/node": "18.7.21",
+    "@types/node": "18.11.15",
     "@types/pixelmatch": "5.2.4",
     "@types/pngjs": "6.0.1",
     "@types/progress": "2.0.5",
