@@ -1,0 +1,204 @@
+name: Puppeteer Canary CI
+
+# Declare default permissions as read only.
+permissions: read-all
+
+on:
+  schedule:
+    # Run everyday at: https://crontab.guru/#0_8_*_*_1-5.
+    - cron: '0 8 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  chrome-canary-tests:
+    name: ${{ matrix.suite }} tests on ${{ matrix.os }} (${{ matrix.shard }}) ${{ matrix.configs }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - chrome-headless
+          - chrome-headful
+          - chrome-headless-shell
+          - chrome-bidi
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+        shard:
+          - 1-2
+          - 2-2
+        configs:
+          - experimental
+          - stable
+        exclude:
+          - os: windows-latest
+            suite: chrome-bidi
+          - os: macos-latest
+            suite: chrome-headful
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Set up Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          cache: npm
+          node-version-file: '.nvmrc'
+      - name: Disable AppArmor
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: echo 0 | sudo tee /proc/sys/kernel/apparmor_restrict_unprivileged_userns
+      - name: Install dependencies
+        run: npm ci
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: true
+      # Set up GitHub Actions caching for Wireit.
+      - uses: google/wireit@eea3c9f0385a39e6eb4ff6a6daa273311381d436 # setup-github-actions-caching/v2.0.2
+      - name: Build packages
+        run: npm run build -w @puppeteer-test/test
+      - name: Install browsers
+        run: npm run postinstall
+        env:
+          PUPPETEER_CHROME_VERSION: canary
+          PUPPETEER_CHROME_HEADLESS_SHELL_VERSION: canary
+          PUPPETEER_FIREFOX_SKIP_DOWNLOAD: true
+      - name: Apply Canary expectations
+        run: node tools/merge-canary-test-expectations.mjs
+      - name: Run all tests (MacOS)
+        if: ${{ matrix.os == 'macos-latest' }}
+        run: npm run test -- --shard '${{ matrix.shard }}' --test-suite ${{ matrix.suite }} --save-stats-to /tmp/artifacts/${{ github.event_name }}_INSERTID.json
+        env:
+          PUPPETEER_CHROME_VERSION: canary
+          PUPPETEER_CHROME_HEADLESS_SHELL_VERSION: canary
+          PUPPETEER_CHROME_HEADLESS_SHELL_SKIP_DOWNLOAD: true
+          PUPPETEER_TEST_EXPERIMENTAL_CHROME_FEATURES: ${{ matrix.configs == 'experimental' }}
+      - name: Run all tests (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: npm run test -- -- --shard '${{ matrix.shard }}' --test-suite ${{ matrix.suite }} --save-stats-to /tmp/artifacts/${{ github.event_name }}_INSERTID.json
+        env:
+          PUPPETEER_CHROME_VERSION: canary
+          PUPPETEER_CHROME_HEADLESS_SHELL_VERSION: canary
+          PUPPETEER_CHROME_HEADLESS_SHELL_SKIP_DOWNLOAD: true
+          PUPPETEER_TEST_EXPERIMENTAL_CHROME_FEATURES: ${{ matrix.configs == 'experimental' }}
+      - name: Run all tests (Linux)
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: xvfb-run --auto-servernum npm run test -- --shard '${{ matrix.shard }}' --test-suite ${{ matrix.suite }} --save-stats-to /tmp/artifacts/${{ github.event_name }}_INSERTID.json
+        env:
+          PUPPETEER_CHROME_VERSION: canary
+          PUPPETEER_CHROME_HEADLESS_SHELL_VERSION: canary
+          PUPPETEER_CHROME_HEADLESS_SHELL_SKIP_DOWNLOAD: true
+          PUPPETEER_TEST_EXPERIMENTAL_CHROME_FEATURES: ${{ matrix.configs == 'experimental' }}
+      - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        if: always()
+        with:
+          name: test-results-${{ matrix.os }}-${{ matrix.suite }}-${{ matrix.shard }}-${{ matrix.configs }}
+          path: /tmp/artifacts/*.json
+
+  firefox-nightly-tests:
+    name: ${{ matrix.suite }} (${{ matrix.shard }}) on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - firefox-headful
+          - firefox-headless
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+        shard:
+          - 1-4
+          - 2-4
+          - 3-4
+          - 4-4
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Set up Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          cache: npm
+          node-version-file: '.nvmrc'
+      - name: Install dependencies
+        run: npm ci
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: true
+      - name: Disable AppArmor
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: echo 0 | sudo tee /proc/sys/kernel/apparmor_restrict_unprivileged_userns
+      # Set up GitHub Actions caching for Wireit.
+      - uses: google/wireit@eea3c9f0385a39e6eb4ff6a6daa273311381d436 # setup-github-actions-caching/v2.0.2
+      - name: Build packages
+        run: npm run build -w @puppeteer-test/test
+      - name: Install browsers
+        run: npm run postinstall
+        env:
+          PUPPETEER_CHROME_SKIP_DOWNLOAD: true
+          PUPPETEER_CHROME_HEADLESS_SHELL_SKIP_DOWNLOAD: true
+          PUPPETEER_FIREFOX_VERSION: nightly
+      - name: Apply Canary expectations
+        run: node tools/merge-canary-test-expectations.mjs
+      - name: Run all tests (MacOS)
+        if: ${{ matrix.os == 'macos-latest' }}
+        run: npm run test -- --shard '${{ matrix.shard }}' --test-suite ${{ matrix.suite }} --save-stats-to /tmp/artifacts/${{ github.event_name }}_INSERTID.json
+        env:
+          PUPPETEER_FIREFOX_VERSION: nightly
+      - name: Run all tests (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: npm run test -- -- --shard '${{ matrix.shard }}' --test-suite ${{ matrix.suite }} --save-stats-to /tmp/artifacts/${{ github.event_name }}_INSERTID.json
+        env:
+          PUPPETEER_FIREFOX_VERSION: nightly
+      - name: Run all tests (Linux)
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: xvfb-run --auto-servernum npm run test -- --shard '${{ matrix.shard }}' --test-suite ${{ matrix.suite }} --save-stats-to /tmp/artifacts/${{ github.event_name }}_INSERTID.json
+        env:
+          PUPPETEER_FIREFOX_VERSION: nightly
+      - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        if: always()
+        with:
+          name: test-results-${{ matrix.os }}-${{ matrix.suite }}-${{ matrix.shard }}
+          path: /tmp/artifacts/*.json
+
+  report-results:
+    name: 'Report results'
+    needs: [chrome-canary-tests, firefox-nightly-tests]
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    if: ${{ always() }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Set up Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          cache: npm
+          node-version-file: '.nvmrc'
+      - name: Install dependencies
+        run: npm ci
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: true
+      - name: Generate comment
+        id: genearate-comment-body
+        run: node tools/build_daily_comment.mjs
+        env:
+          CHROME_RUN_STATUS: ${{ needs.chrome-canary-tests.result }}
+          FIREFOX_RUN_STATUS: ${{ needs.firefox-nightly-tests.result }}
+      - name: Find Comment
+        uses: peter-evans/find-comment@3eae4d37986fb5a8592848f6a574fdf654e61f9e # v3.1.0
+        id: find-comment
+        with:
+          # https://github.com/puppeteer/puppeteer/issues/12379
+          issue-number: 12379
+          body-includes: ${{ steps.genearate-comment-body.outputs.today }}
+          direction: last
+      - name: Post comment
+        uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043 # v4.0.0
+        if: ${{ needs.chrome-canary-tests.result}}
+        with:
+          # https://github.com/puppeteer/puppeteer/issues/12379
+          issue-number: 12379
+          # Try to find the same comment this day
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
+          body: ${{ steps.genearate-comment-body.outputs.body }}
+          edit-mode: replace

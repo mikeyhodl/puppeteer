@@ -2,59 +2,49 @@
   "testSuites": [
     {
       "id": "chrome-headless",
-      "platforms": ["linux", "win32", "darwin"],
-      "parameters": ["chrome", "headless"],
-      "expectedLineCoverage": 93
+      "parameters": ["chrome", "headless", "cdp"]
     },
     {
       "id": "chrome-headful",
-      "platforms": ["linux"],
-      "parameters": ["chrome", "headful"],
-      "expectedLineCoverage": 93
+      "parameters": ["chrome", "headful", "cdp"]
     },
     {
-      "id": "chrome-new-headless",
-      "platforms": ["linux"],
-      "parameters": ["chrome", "chrome-headless"],
-      "expectedLineCoverage": 93
+      "id": "chrome-headless-shell",
+      "parameters": ["chrome", "chrome-headless-shell", "cdp"]
     },
     {
       "id": "firefox-headless",
-      "platforms": ["linux", "darwin"],
-      "parameters": ["firefox", "headless"],
-      "expectedLineCoverage": 80
+      "parameters": ["firefox", "headless", "webDriverBiDi"]
     },
     {
       "id": "firefox-headful",
-      "platforms": ["linux"],
-      "parameters": ["firefox", "headful"],
-      "expectedLineCoverage": 80
+      "parameters": ["firefox", "headful", "webDriverBiDi"]
     },
     {
-      "id": "firefox-bidi",
-      "platforms": ["linux"],
-      "parameters": ["firefox", "headless", "webDriverBiDi"],
-      "expectedLineCoverage": 56
+      "id": "chrome-bidi",
+      "parameters": ["chrome", "headless", "webDriverBiDi"]
     }
   ],
-  "parameterDefinitons": {
+  "parameterDefinitions": {
     "chrome": {
-      "PUPPETEER_PRODUCT": "chrome"
+      "PUPPETEER_BROWSER": "chrome"
     },
     "firefox": {
-      "PUPPETEER_PRODUCT": "firefox"
+      "PUPPETEER_BROWSER": "firefox"
     },
     "headless": {
-      "HEADLESS": "true"
+      "HEADLESS": "true",
+      "PUPPETEER_LOGLEVEL": "silent"
     },
     "headful": {
       "HEADLESS": "false"
     },
-    "chrome-headless": {
-      "HEADLESS": "new"
+    "chrome-headless-shell": {
+      "HEADLESS": "shell"
     },
     "webDriverBiDi": {
       "PUPPETEER_PROTOCOL": "webDriverBiDi"
-    }
+    },
+    "cdp": {}
   }
 }

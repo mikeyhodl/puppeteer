@@ -1,30 +1,36 @@
 /**
- * Copyright 2022 Google Inc. All rights reserved.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     https://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * @license
+ * Copyright 2022 Google Inc.
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 // @ts-check
 // Note: type annotations allow type checking and IDEs autocompletion
 
-const lightCodeTheme = require('prism-react-renderer/themes/github');
-const darkCodeTheme = require('prism-react-renderer/themes/dracula');
+const assert = require('assert');
+
+const {themes} = require('prism-react-renderer');
+const darkCodeTheme = themes.dracula;
+const lightCodeTheme = themes.github;
+const semver = require('semver');
 
 const archivedVersions = require('./versionsArchived.json');
-const assert = require('assert');
 
 const DOC_ROUTE_BASE_PATH = '/';
 const DOC_PATH = '../docs';
+
+/**
+ * This logic should match the one in `Herebyfile.mjs`.
+ */
+function getApiUrl(version) {
+  if (semver.gte(version, '19.3.0')) {
+    return `https://github.com/puppeteer/puppeteer/blob/puppeteer-${version}/docs/api/index.md`;
+  } else if (semver.gte(version, '15.3.0')) {
+    return `https://github.com/puppeteer/puppeteer/blob/${version}/docs/api/index.md`;
+  } else {
+    return `https://github.com/puppeteer/puppeteer/blob/${version}/docs/api.md`;
+  }
+}
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
@@ -41,6 +47,17 @@ const config = {
     defaultLocale: 'en',
     locales: ['en'],
   },
+  scripts: [
+    {
+      src: 'https://www.googletagmanager.com/gtag/js?id=G-J15CTWBVHX',
+      async: true,
+    },
+    {
+      src: '/fix-location.js',
+      async: false,
+      defer: false,
+    },
+  ],
   webpack: {
     jsLoader: isServer => {
       return {
@@ -70,6 +87,34 @@ const config = {
             from: '/guides',
             to: '/category/guides',
           },
+          {
+            from: '/docs',
+            to: '/guides/what-is-puppeteer',
+          },
+          {
+            from: '/chromium-support',
+            to: '/supported-browsers',
+          },
+          {
+            from: '/guides/query-selectors',
+            to: '/guides/page-interactions',
+          },
+          {
+            from: '/guides/request-interception',
+            to: '/guides/network-interception',
+          },
+          {
+            from: '/guides/query-selectors-legacy',
+            to: '/guides/page-interactions',
+          },
+          {
+            from: '/guides/locators',
+            to: '/guides/page-interactions',
+          },
+          {
+            from: '/guides/evaluate-javascript',
+            to: '/guides/javascript-execution',
+          },
         ],
       }),
     ],
@@ -84,12 +129,6 @@ const config = {
         docs: {
           async sidebarItemsGenerator({defaultSidebarItemsGenerator, ...args}) {
             const sidebarItems = await defaultSidebarItemsGenerator(args);
-            const apiItem = sidebarItems.find(value => {
-              return value.type === 'doc' && value.label === 'API';
-            });
-            if (!apiItem) {
-              return sidebarItems;
-            }
 
             /** @type {typeof sidebarItems} */
             const apiSidebarItems = [];
@@ -104,41 +143,12 @@ const config = {
               }
             }
 
-            const order = [
-              // PuppeteerNode and Puppeteer go first as the entrypoints into
-              // the Puppeteer API.
-              'PuppeteerNode',
-              'Puppeteer',
-              'BrowserFetcher',
-              'Browser',
-              'BrowserContext',
-              'Page',
-              'WebWorker',
-              'Accessibility',
-              'Keyboard',
-              'Mouse',
-              'Touchscreen',
-              'Tracing',
-              'FileChooser',
-              'Dialog',
-              'ConsoleMessage',
-              'Frame',
-              'JSHandle',
-              'ElementHandle',
-              'HTTPRequest',
-              'HTTPResponse',
-              'SecurityDetails',
-              'Target',
-              'CDPSession',
-              'Coverage',
-              'TimeoutError',
-              'EventEmitter',
-            ];
-
             function addNamespace(namespace, target) {
               let items = categories.get(namespace);
               if (!items) {
-                throw new Error(`Namespace ${namespace} not found`);
+                throw new Error(
+                  `Namespace ${namespace} not found. Did you update the list of sidebar namespaces below?`,
+                );
               }
               items.sort((a, b) => {
                 return a.label.localeCompare(b.label);
@@ -163,8 +173,75 @@ const config = {
               categories.delete(namespace);
             }
 
-            for (const namespace of order) {
-              addNamespace(namespace, apiSidebarItems);
+            if (args.item.dirName === 'browsers-api') {
+              const order = [
+                'launch',
+                'install',
+                'uninstall',
+                'canDownload',
+                'createProfile',
+                'computeExecutablePath',
+                'computeSystemExecutablePath',
+                'resolveBuildId',
+                'getInstalledBrowsers',
+                'detectBrowserPlatform',
+                'BrowserPlatform',
+                'Browser',
+                'CLI',
+              ];
+              const apiItem = sidebarItems.find(value => {
+                return value.type === 'doc' && value.label === 'API';
+              });
+              apiSidebarItems.push({
+                type: 'category',
+                label: 'API',
+                items: [],
+                link: apiItem
+                  ? {
+                      type: 'doc',
+                      id: apiItem.id,
+                    }
+                  : undefined,
+              });
+              const container = apiSidebarItems[apiSidebarItems.length - 1];
+              for (const namespace of order) {
+                addNamespace(namespace, container.items);
+              }
+            } else {
+              const order = [
+                // PuppeteerNode and Puppeteer go first as the entrypoints into
+                // the Puppeteer API.
+                'PuppeteerNode',
+                'Puppeteer',
+                'Browser',
+                'BrowserContext',
+                'Page',
+                'Locator',
+                'WebWorker',
+                'Accessibility',
+                'Keyboard',
+                'Mouse',
+                'Touchscreen',
+                'Tracing',
+                'FileChooser',
+                'Dialog',
+                'ConsoleMessage',
+                'Frame',
+                'JSHandle',
+                'ElementHandle',
+                'HTTPRequest',
+                'HTTPResponse',
+                'SecurityDetails',
+                'Target',
+                'CDPSession',
+                'Coverage',
+                'TimeoutError',
+                'EventEmitter',
+              ];
+
+              for (const namespace of order) {
+                addNamespace(namespace, apiSidebarItems);
+              }
             }
             const otherItems = [];
             apiSidebarItems.push({
@@ -178,6 +255,9 @@ const config = {
               return a.localeCompare(b);
             });
             for (const namespace of remaining) {
+              if (namespace === 'API') {
+                continue;
+              }
               addNamespace(namespace, otherItems);
             }
             return apiSidebarItems;
@@ -185,6 +265,9 @@ const config = {
           path: DOC_PATH,
           routeBasePath: DOC_ROUTE_BASE_PATH,
           sidebarPath: require.resolve('./sidebars.js'),
+          remarkPlugins: [
+            [require('@docusaurus/remark-plugin-npm2yarn'), {sync: true}],
+          ],
         },
         theme: {
           customCss: require.resolve('./src/css/custom.css'),
@@ -209,14 +292,19 @@ const config = {
         items: [
           ...[
             {
-              type: 'doc',
-              docId: 'index',
+              type: 'docSidebar',
+              sidebarId: 'docs',
               label: 'Docs',
             },
             {
               type: 'docSidebar',
               sidebarId: 'api',
-              label: 'API',
+              label: 'Puppeteer API',
+            },
+            {
+              type: 'docSidebar',
+              sidebarId: 'browsersApi',
+              label: '@puppeteer/browsers API',
             },
           ].map(item => {
             return Object.assign(item, {position: 'left'});
@@ -238,7 +326,7 @@ const config = {
                 ...archivedVersions.map(version => {
                   return {
                     label: version,
-                    href: `https://github.com/puppeteer/puppeteer/blob/v${version}/docs/api/index.md`,
+                    href: getApiUrl(`v${version}`),
                   };
                 }),
               ],
@@ -273,12 +361,26 @@ const config = {
               },
             ],
           },
+          {
+            title: 'Other',
+            items: [
+              {
+                label: 'Privacy policy',
+                href: 'https://policies.google.com/technologies/cookies',
+              },
+              {
+                label: 'Cookie policy',
+                href: 'https://www.cookiechoices.org/',
+              },
+            ],
+          },
         ],
         copyright: `Copyright © ${new Date().getFullYear()} Google, Inc.`,
       },
       prism: {
         theme: lightCodeTheme,
         darkTheme: darkCodeTheme,
+        additionalLanguages: ['bash', 'diff', 'json'],
       },
     },
 };

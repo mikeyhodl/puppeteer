@@ -1,26 +1,26 @@
 /**
- * Copyright 2018 Google Inc. All rights reserved.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * @license
+ * Copyright 2018 Google Inc.
+ * SPDX-License-Identifier: Apache-2.0
  */
 import os from 'os';
+
 import expect from 'expect';
-import {
-  getTestState,
-  setupTestBrowserHooks,
-  setupTestPageAndContextHooks,
-} from './mocha-utils.js';
-import {KeyInput} from 'puppeteer-core/internal/common/USKeyboardLayout.js';
+import {MouseButton} from 'puppeteer-core/internal/api/Input.js';
+import type {Page} from 'puppeteer-core/internal/api/Page.js';
+import type {KeyInput} from 'puppeteer-core/internal/common/USKeyboardLayout.js';
+
+import {getTestState, setupTestBrowserHooks} from './mocha-utils.js';
+
+interface ClickData {
+  type: string;
+  detail: number;
+  clientX: number;
+  clientY: number;
+  isTrusted: boolean;
+  button: number;
+  buttons: number;
+}
 
 interface Dimensions {
   x: number;
@@ -41,9 +41,9 @@ function dimensions(): Dimensions {
 
 describe('Mouse', function () {
   setupTestBrowserHooks();
-  setupTestPageAndContextHooks();
+
   it('should click the document', async () => {
-    const {page} = getTestState();
+    const {page} = await getTestState();
 
     await page.evaluate(() => {
       (globalThis as any).clickPromise = new Promise(resolve => {
@@ -71,7 +71,7 @@ describe('Mouse', function () {
     expect(event.button).toBe(0);
   });
   it('should resize the textarea', async () => {
-    const {page, server} = getTestState();
+    const {page, server} = await getTestState();
 
     await page.goto(server.PREFIX + '/input/textarea.html');
     const {x, y, width, height} = await page.evaluate(dimensions);
@@ -85,60 +85,61 @@ describe('Mouse', function () {
     expect(newDimensions.height).toBe(Math.round(height + 104));
   });
   it('should select the text with mouse', async () => {
-    const {page, server} = getTestState();
+    const {page, server} = await getTestState();
 
-    await page.goto(server.PREFIX + '/input/textarea.html');
-    await page.focus('textarea');
     const text =
       "This is the text that we are going to try to select. Let's see how it goes.";
+
+    await page.goto(`${server.PREFIX}/input/textarea.html`);
+    await page.focus('textarea');
     await page.keyboard.type(text);
-    // Firefox needs an extra frame here after typing or it will fail to set the scrollTop
-    await page.evaluate(() => {
-      return new Promise(requestAnimationFrame);
-    });
-    await page.evaluate(() => {
-      return (document.querySelector('textarea')!.scrollTop = 0);
-    });
+    using handle = await page
+      .locator('textarea')
+      .filterHandle(async element => {
+        return await element.evaluate((element, text) => {
+          return element.value === text;
+        }, text);
+      })
+      .waitHandle();
     const {x, y} = await page.evaluate(dimensions);
     await page.mouse.move(x + 2, y + 2);
     await page.mouse.down();
     await page.mouse.move(100, 100);
     await page.mouse.up();
     expect(
-      await page.evaluate(() => {
-        const textarea = document.querySelector('textarea')!;
-        return textarea.value.substring(
-          textarea.selectionStart,
-          textarea.selectionEnd
+      await handle.evaluate(element => {
+        return element.value.substring(
+          element.selectionStart,
+          element.selectionEnd,
         );
-      })
+      }),
     ).toBe(text);
   });
   it('should trigger hover state', async () => {
-    const {page, server} = getTestState();
+    const {page, server} = await getTestState();
 
     await page.goto(server.PREFIX + '/input/scrollable.html');
     await page.hover('#button-6');
     expect(
       await page.evaluate(() => {
         return document.querySelector('button:hover')!.id;
-      })
+      }),
     ).toBe('button-6');
     await page.hover('#button-2');
     expect(
       await page.evaluate(() => {
         return document.querySelector('button:hover')!.id;
-      })
+      }),
     ).toBe('button-2');
     await page.hover('#button-91');
     expect(
       await page.evaluate(() => {
         return document.querySelector('button:hover')!.id;
-      })
+      }),
     ).toBe('button-91');
   });
   it('should trigger hover state with removed window.Node', async () => {
-    const {page, server} = getTestState();
+    const {page, server} = await getTestState();
 
     await page.goto(server.PREFIX + '/input/scrollable.html');
     await page.evaluate(() => {
@@ -149,11 +150,11 @@ describe('Mouse', function () {
     expect(
       await page.evaluate(() => {
         return document.querySelector('button:hover')!.id;
-      })
+      }),
     ).toBe('button-6');
   });
   it('should set modifier keys on click', async () => {
-    const {page, server, isFirefox} = getTestState();
+    const {page, server, isFirefox} = await getTestState();
 
     await page.goto(server.PREFIX + '/input/scrollable.html');
     await page.evaluate(() => {
@@ -162,7 +163,7 @@ describe('Mouse', function () {
         e => {
           return ((globalThis as any).lastEvent = e);
         },
-        true
+        true,
       );
     });
     const modifiers = new Map<KeyInput, string>([
@@ -179,7 +180,7 @@ describe('Mouse', function () {
       await page.keyboard.down(modifier);
       await page.click('#button-3');
       if (
-        !(await page.evaluate((mod: string) => {
+        !(await page.evaluate(mod => {
           return (globalThis as any).lastEvent[mod];
         }, key))
       ) {
@@ -190,7 +191,7 @@ describe('Mouse', function () {
     await page.click('#button-3');
     for (const [modifier, key] of modifiers) {
       if (
-        await page.evaluate((mod: string) => {
+        await page.evaluate(mod => {
           return (globalThis as any).lastEvent[mod];
         }, key)
       ) {
@@ -199,10 +200,10 @@ describe('Mouse', function () {
     }
   });
   it('should send mouse wheel events', async () => {
-    const {page, server} = getTestState();
+    const {page, server} = await getTestState();
 
     await page.goto(server.PREFIX + '/input/wheel.html');
-    const elem = (await page.$('div'))!;
+    using elem = (await page.$('div'))!;
     const boundingBoxBefore = (await elem.boundingBox())!;
     expect(boundingBoxBefore).toMatchObject({
       width: 115,
@@ -211,7 +212,7 @@ describe('Mouse', function () {
 
     await page.mouse.move(
       boundingBoxBefore.x + boundingBoxBefore.width / 2,
-      boundingBoxBefore.y + boundingBoxBefore.height / 2
+      boundingBoxBefore.y + boundingBoxBefore.height / 2,
     );
 
     await page.mouse.wheel({deltaY: -100});
@@ -221,8 +222,34 @@ describe('Mouse', function () {
       height: 230,
     });
   });
+  it('should set ctrlKey on the wheel event', async () => {
+    const {page, server, isFirefox} = await getTestState();
+    await page.goto(server.EMPTY_PAGE);
+    const ctrlKey = page.evaluate(() => {
+      return new Promise(resolve => {
+        window.addEventListener(
+          'wheel',
+          event => {
+            resolve(event.ctrlKey);
+          },
+          {
+            once: true,
+          },
+        );
+      });
+    });
+    await page.keyboard.down('Control');
+    await page.mouse.wheel({deltaY: -100});
+    // Scroll back to work around
+    // https://bugzilla.mozilla.org/show_bug.cgi?id=1901211.
+    if (isFirefox) {
+      await page.mouse.wheel({deltaY: 100});
+    }
+    await page.keyboard.up('Control');
+    expect(await ctrlKey).toBeTruthy();
+  });
   it('should tween mouse movement', async () => {
-    const {page} = getTestState();
+    const {page} = await getTestState();
 
     await page.mouse.move(100, 100);
     await page.evaluate(() => {
@@ -242,7 +269,7 @@ describe('Mouse', function () {
   });
   // @see https://crbug.com/929806
   it('should work with mobile viewports and cross process navigations', async () => {
-    const {page, server} = getTestState();
+    const {page, server} = await getTestState();
 
     await page.goto(server.EMPTY_PAGE);
     await page.setViewport({width: 360, height: 640, isMobile: true});
@@ -256,5 +283,216 @@ describe('Mouse', function () {
     await page.mouse.click(30, 40);
 
     expect(await page.evaluate('result')).toEqual({x: 30, y: 40});
+  });
+  it('should not throw if buttons are pressed twice', async () => {
+    const {page, server} = await getTestState();
+
+    await page.goto(server.EMPTY_PAGE);
+
+    await page.mouse.down();
+    await page.mouse.down();
+  });
+
+  interface AddMouseDataListenersOptions {
+    includeMove?: boolean;
+  }
+
+  const addMouseDataListeners = (
+    page: Page,
+    options: AddMouseDataListenersOptions = {},
+  ) => {
+    return page.evaluate(({includeMove}) => {
+      const clicks: ClickData[] = [];
+      const mouseEventListener = (event: MouseEvent) => {
+        clicks.push({
+          type: event.type,
+          detail: event.detail,
+          clientX: event.clientX,
+          clientY: event.clientY,
+          isTrusted: event.isTrusted,
+          button: event.button,
+          buttons: event.buttons,
+        });
+      };
+      document.addEventListener('mousedown', mouseEventListener);
+      if (includeMove) {
+        document.addEventListener('mousemove', mouseEventListener);
+      }
+      document.addEventListener('mouseup', mouseEventListener);
+      document.addEventListener('click', mouseEventListener);
+      document.addEventListener('auxclick', mouseEventListener);
+      (window as unknown as {clicks: ClickData[]}).clicks = clicks;
+    }, options);
+  };
+
+  it('should not throw if clicking in parallel', async () => {
+    const {page, server} = await getTestState();
+
+    await page.goto(server.EMPTY_PAGE);
+    await addMouseDataListeners(page);
+
+    await Promise.all([page.mouse.click(0, 5), page.mouse.click(6, 10)]);
+
+    const data = await page.evaluate(() => {
+      return (window as unknown as {clicks: ClickData[]}).clicks;
+    });
+    const commonAttrs = {
+      isTrusted: true,
+      detail: 1,
+      clientY: 5,
+      clientX: 0,
+      button: 0,
+    };
+    expect(data.splice(0, 3)).toMatchObject({
+      0: {
+        type: 'mousedown',
+        buttons: 1,
+        ...commonAttrs,
+      },
+      1: {
+        type: 'mouseup',
+        buttons: 0,
+        ...commonAttrs,
+      },
+      2: {
+        type: 'click',
+        buttons: 0,
+        ...commonAttrs,
+      },
+    });
+    Object.assign(commonAttrs, {
+      clientX: 6,
+      clientY: 10,
+    });
+    expect(data).toMatchObject({
+      0: {
+        type: 'mousedown',
+        buttons: 1,
+        ...commonAttrs,
+      },
+      1: {
+        type: 'mouseup',
+        buttons: 0,
+        ...commonAttrs,
+      },
+      2: {
+        type: 'click',
+        buttons: 0,
+        ...commonAttrs,
+      },
+    });
+  });
+
+  it('should reset properly', async () => {
+    const {page, server, isChrome} = await getTestState();
+
+    await page.goto(server.EMPTY_PAGE);
+
+    await page.mouse.move(5, 5);
+    await Promise.all([
+      page.mouse.down({button: MouseButton.Left}),
+      page.mouse.down({button: MouseButton.Middle}),
+      page.mouse.down({button: MouseButton.Right}),
+    ]);
+
+    await addMouseDataListeners(page, {includeMove: true});
+    await page.mouse.reset();
+
+    const data = await page.evaluate(() => {
+      return (window as unknown as {clicks: ClickData[]}).clicks;
+    });
+    const commonAttrs = {
+      isTrusted: true,
+      clientY: 5,
+      clientX: 5,
+    };
+
+    expect(data.slice(0, 2)).toMatchObject([
+      {
+        ...commonAttrs,
+        button: 2,
+        buttons: 5,
+        detail: 1,
+        type: 'mouseup',
+      },
+      {
+        ...commonAttrs,
+        button: 2,
+        buttons: 5,
+        detail: 1,
+        type: 'auxclick',
+      },
+    ]);
+    // TODO(crbug/1485040): This should align with the firefox implementation.
+    if (isChrome) {
+      expect(data.slice(2)).toMatchObject([
+        {
+          ...commonAttrs,
+          button: 1,
+          buttons: 1,
+          detail: 0,
+          type: 'mouseup',
+        },
+        {
+          ...commonAttrs,
+          button: 0,
+          buttons: 0,
+          detail: 0,
+          type: 'mouseup',
+        },
+      ]);
+      return;
+    }
+    expect(data.slice(2)).toMatchObject([
+      {
+        ...commonAttrs,
+        button: 1,
+        buttons: 1,
+        detail: 1,
+        type: 'mouseup',
+      },
+      {
+        ...commonAttrs,
+        button: 1,
+        buttons: 1,
+        detail: 1,
+        type: 'auxclick',
+      },
+      {
+        ...commonAttrs,
+        button: 0,
+        buttons: 0,
+        detail: 1,
+        type: 'mouseup',
+      },
+      {
+        ...commonAttrs,
+        button: 0,
+        buttons: 0,
+        detail: 1,
+        type: 'click',
+      },
+    ]);
+  });
+
+  it('should evaluate before mouse event', async () => {
+    const {page, server} = await getTestState();
+
+    await page.goto(server.EMPTY_PAGE);
+    await page.goto(server.CROSS_PROCESS_PREFIX + '/input/button.html');
+
+    using button = await page.waitForSelector('button');
+
+    const point = await button!.clickablePoint();
+
+    const result = page.evaluate(() => {
+      return new Promise(resolve => {
+        document
+          .querySelector('button')
+          ?.addEventListener('click', resolve, {once: true});
+      });
+    });
+    await page.mouse.click(point?.x, point?.y);
+    await result;
   });
 });

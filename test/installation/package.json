@@ -5,9 +5,8 @@
   "private": true,
   "scripts": {
     "build": "wireit",
-    "build:packages": "wireit",
-    "clean": "tsc -b --clean && rimraf build",
-    "test": "mocha"
+    "clean": "../../tools/clean.mjs",
+    "test": "wireit"
   },
   "wireit": {
     "build": {
@@ -26,14 +25,22 @@
       ]
     },
     "build:packages": {
-      "command": "npm pack --workspace puppeteer --workspace puppeteer-core",
+      "command": "npm pack --quiet --workspace puppeteer --workspace puppeteer-core --workspace @puppeteer/browsers",
       "dependencies": [
         "../../packages/puppeteer:build",
-        "../../packages/puppeteer-core:build"
+        "../../packages/puppeteer-core:build",
+        "../../packages/browsers:build",
+        "../../packages/testserver:build"
       ],
       "files": [],
       "output": [
         "puppeteer-*.tgz"
+      ]
+    },
+    "test": {
+      "command": "mocha",
+      "dependencies": [
+        "build"
       ]
     }
   },
@@ -43,8 +50,8 @@
     "build",
     "assets"
   ],
-  "dependencies": {
-    "glob": "8.0.3",
-    "mocha": "10.0.0"
+  "devDependencies": {
+    "glob": "10.4.5",
+    "mocha": "11.0.1"
   }
 }

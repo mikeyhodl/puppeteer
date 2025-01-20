@@ -1,53 +1,38 @@
 {
   "name": "@puppeteer/ng-schematics",
-  "version": "0.1.0",
+  "version": "0.7.0",
   "description": "Puppeteer Angular schematics",
   "scripts": {
-    "dev": "npm run build --watch",
-    "dev:test": "npm run test --watch",
-    "copy": "wireit",
     "build": "wireit",
-    "clean": "tsc --build --clean && rimraf lib",
-    "clean:test": "rimraf test/build",
-    "test": "wireit"
+    "clean": "../../tools/clean.mjs",
+    "dev:test": "npm run test --watch",
+    "dev": "npm run build --watch",
+    "unit": "wireit"
   },
   "wireit": {
-    "copy": {
-      "clean": "if-file-deleted",
-      "command": "node copySchemaFiles.js",
-      "files": [
-        "src/**/files/**",
-        "src/**/*.json"
-      ],
-      "output": [
-        "lib/**/files/**",
-        "lib/**/*.json"
-      ],
-      "dependencies": [
-        "clean"
-      ]
-    },
     "build": {
-      "command": "tsc -b",
+      "command": "tsc -b && node tools/copySchemaFiles.mjs",
+      "clean": "if-file-deleted",
       "files": [
-        "src/**/*.ts",
-        "!src/**/files",
-        "!src/**/*.json"
+        "tsconfig.json",
+        "tsconfig.test.json",
+        "src/**",
+        "test/src/**"
       ],
       "output": [
         "lib/**",
-        "!lib/**/files",
-        "!lib/**/*.json"
-      ],
-      "dependencies": [
-        "copy"
+        "test/build/**",
+        "*.tsbuildinfo"
       ]
     },
-    "test": {
-      "command": "mocha",
+    "build:test": {
+      "command": "tsc -b test/tsconfig.json"
+    },
+    "unit": {
+      "command": "node --test --test-reporter=spec \"test/build/**/*.test.js\"",
       "dependencies": [
-        "clean:test",
-        "build"
+        "build",
+        "build:test"
       ]
     }
   },
@@ -63,16 +48,16 @@
   "author": "The Chromium Authors",
   "license": "Apache-2.0",
   "engines": {
-    "node": ">=14.1.0"
+    "node": ">=18"
   },
   "dependencies": {
-    "@angular-devkit/architect": "^0.1402.10",
-    "@angular-devkit/core": "^15.0.1",
-    "@angular-devkit/schematics": "^15.0.3"
+    "@angular-devkit/architect": "0.1801.4",
+    "@angular-devkit/core": "18.1.4",
+    "@angular-devkit/schematics": "18.1.4"
   },
   "devDependencies": {
-    "@types/node": "^14.15.0",
-    "@schematics/angular": "^14.2.8"
+    "@schematics/angular": "19.1.2",
+    "@angular/cli": "19.1.2"
   },
   "files": [
     "lib",

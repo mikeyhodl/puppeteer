@@ -8,8 +8,8 @@
     "declarationMap": true,
     "esModuleInterop": true,
     "incremental": true,
-    "module": "ESNext",
-    "moduleResolution": "node",
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
     "noFallthroughCasesInSwitch": true,
     "noImplicitAny": true,
     "noImplicitOverride": true,
@@ -20,13 +20,19 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "resolveJsonModule": true,
+    "skipLibCheck": true,
     "sourceMap": true,
     "strict": true,
     "strictBindCallApply": true,
     "strictFunctionTypes": true,
     "strictNullChecks": true,
     "strictPropertyInitialization": true,
-    "target": "ES2019",
+    "target": "ES2022",
+    "typeRoots": [
+      "./node_modules/@types",
+      "${configDir}/node_modules/@types",
+      "${configDir}/../node_modules/@types"
+    ],
     "useUnknownInCatchVariables": true
   }
 }

@@ -1,20 +1,11 @@
 /**
- * Copyright 2020 Google Inc. All rights reserved.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * @license
+ * Copyright 2020 Google Inc.
+ * SPDX-License-Identifier: Apache-2.0
  */
 
-import {JSHandle} from './JSHandle.js';
+import type {Frame} from '../api/Frame.js';
+import type {JSHandle} from '../api/JSHandle.js';
 
 /**
  * @public
@@ -45,7 +36,7 @@ export type ConsoleMessageType =
   | 'debug'
   | 'info'
   | 'error'
-  | 'warning'
+  | 'warn'
   | 'dir'
   | 'dirxml'
   | 'table'
@@ -70,52 +61,58 @@ export class ConsoleMessage {
   #text: string;
   #args: JSHandle[];
   #stackTraceLocations: ConsoleMessageLocation[];
+  #frame?: Frame;
 
   /**
-   * @public
+   * @internal
    */
   constructor(
     type: ConsoleMessageType,
     text: string,
     args: JSHandle[],
-    stackTraceLocations: ConsoleMessageLocation[]
+    stackTraceLocations: ConsoleMessageLocation[],
+    frame?: Frame,
   ) {
     this.#type = type;
     this.#text = text;
     this.#args = args;
     this.#stackTraceLocations = stackTraceLocations;
+    this.#frame = frame;
   }
 
   /**
-   * @returns The type of the console message.
+   * The type of the console message.
    */
   type(): ConsoleMessageType {
     return this.#type;
   }
 
   /**
-   * @returns The text of the console message.
+   * The text of the console message.
    */
   text(): string {
     return this.#text;
   }
 
   /**
-   * @returns An array of arguments passed to the console.
+   * An array of arguments passed to the console.
    */
   args(): JSHandle[] {
     return this.#args;
   }
 
   /**
-   * @returns The location of the console message.
+   * The location of the console message.
    */
   location(): ConsoleMessageLocation {
-    return this.#stackTraceLocations[0] ?? {};
+    return (
+      this.#stackTraceLocations[0] ??
+      (this.#frame ? {url: this.#frame.url()} : {})
+    );
   }
 
   /**
-   * @returns The array of locations on the stack of the console message.
+   * The array of locations on the stack of the console message.
    */
   stackTrace(): ConsoleMessageLocation[] {
     return this.#stackTraceLocations;

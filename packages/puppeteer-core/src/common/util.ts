@@ -1,31 +1,35 @@
 /**
- * Copyright 2017 Google Inc. All rights reserved.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * @license
+ * Copyright 2017 Google Inc.
+ * SPDX-License-Identifier: Apache-2.0
  */
 
-import {Protocol} from 'devtools-protocol';
-import type {Readable} from 'stream';
-import {isNode} from '../environment.js';
+import type {OperatorFunction} from '../../third_party/rxjs/rxjs.js';
+import {
+  filter,
+  from,
+  fromEvent,
+  map,
+  mergeMap,
+  NEVER,
+  Observable,
+  timer,
+} from '../../third_party/rxjs/rxjs.js';
+import type {CDPSession} from '../api/CDPSession.js';
+import {environment} from '../environment.js';
+import {packageVersion} from '../generated/version.js';
 import {assert} from '../util/assert.js';
-import {isErrorLike} from '../util/ErrorLike.js';
-import {CDPSession} from './Connection.js';
+import {mergeUint8Arrays} from '../util/encoding.js';
+
 import {debug} from './Debug.js';
-import {ElementHandle} from './ElementHandle.js';
 import {TimeoutError} from './Errors.js';
-import {CommonEventEmitter} from './EventEmitter.js';
-import {ExecutionContext} from './ExecutionContext.js';
-import {JSHandle} from './JSHandle.js';
+import type {EventEmitter, EventType} from './EventEmitter.js';
+import type {
+  LowerCasePaperFormat,
+  ParsedPDFOptions,
+  PDFOptions,
+} from './PDFOptions.js';
+import {paperFormats} from './PDFOptions.js';
 
 /**
  * @internal
@@ -35,115 +39,99 @@ export const debugError = debug('puppeteer:error');
 /**
  * @internal
  */
-export function getExceptionMessage(
-  exceptionDetails: Protocol.Runtime.ExceptionDetails
-): string {
-  if (exceptionDetails.exception) {
-    return (
-      exceptionDetails.exception.description || exceptionDetails.exception.value
-    );
+export const DEFAULT_VIEWPORT = Object.freeze({width: 800, height: 600});
+
+/**
+ * @internal
+ */
+const SOURCE_URL = Symbol('Source URL for Puppeteer evaluation scripts');
+
+/**
+ * @internal
+ */
+export class PuppeteerURL {
+  static INTERNAL_URL = 'pptr:internal';
+
+  static fromCallSite(
+    functionName: string,
+    site: NodeJS.CallSite,
+  ): PuppeteerURL {
+    const url = new PuppeteerURL();
+    url.#functionName = functionName;
+    url.#siteString = site.toString();
+    return url;
   }
-  let message = exceptionDetails.text;
-  if (exceptionDetails.stackTrace) {
-    for (const callframe of exceptionDetails.stackTrace.callFrames) {
-      const location =
-        callframe.url +
-        ':' +
-        callframe.lineNumber +
-        ':' +
-        callframe.columnNumber;
-      const functionName = callframe.functionName || '<anonymous>';
-      message += `\n    at ${functionName} (${location})`;
-    }
+
+  static parse = (url: string): PuppeteerURL => {
+    url = url.slice('pptr:'.length);
+    const [functionName = '', siteString = ''] = url.split(';');
+    const puppeteerUrl = new PuppeteerURL();
+    puppeteerUrl.#functionName = functionName;
+    puppeteerUrl.#siteString = decodeURIComponent(siteString);
+    return puppeteerUrl;
+  };
+
+  static isPuppeteerURL = (url: string): boolean => {
+    return url.startsWith('pptr:');
+  };
+
+  #functionName!: string;
+  #siteString!: string;
+
+  get functionName(): string {
+    return this.#functionName;
   }
-  return message;
+
+  get siteString(): string {
+    return this.#siteString;
+  }
+
+  toString(): string {
+    return `pptr:${[
+      this.#functionName,
+      encodeURIComponent(this.#siteString),
+    ].join(';')}`;
+  }
 }
 
 /**
  * @internal
  */
-export function valueFromRemoteObject(
-  remoteObject: Protocol.Runtime.RemoteObject
-): any {
-  assert(!remoteObject.objectId, 'Cannot extract value when objectId is given');
-  if (remoteObject.unserializableValue) {
-    if (remoteObject.type === 'bigint' && typeof BigInt !== 'undefined') {
-      return BigInt(remoteObject.unserializableValue.replace('n', ''));
-    }
-    switch (remoteObject.unserializableValue) {
-      case '-0':
-        return -0;
-      case 'NaN':
-        return NaN;
-      case 'Infinity':
-        return Infinity;
-      case '-Infinity':
-        return -Infinity;
-      default:
-        throw new Error(
-          'Unsupported unserializable value: ' +
-            remoteObject.unserializableValue
-        );
-    }
+export const withSourcePuppeteerURLIfNone = <T extends NonNullable<unknown>>(
+  functionName: string,
+  object: T,
+): T => {
+  if (Object.prototype.hasOwnProperty.call(object, SOURCE_URL)) {
+    return object;
   }
-  return remoteObject.value;
-}
+  const original = Error.prepareStackTrace;
+  Error.prepareStackTrace = (_, stack) => {
+    // First element is the function.
+    // Second element is the caller of this function.
+    // Third element is the caller of the caller of this function
+    // which is precisely what we want.
+    return stack[2];
+  };
+  const site = new Error().stack as unknown as NodeJS.CallSite;
+  Error.prepareStackTrace = original;
+  return Object.assign(object, {
+    [SOURCE_URL]: PuppeteerURL.fromCallSite(functionName, site),
+  });
+};
 
 /**
  * @internal
  */
-export async function releaseObject(
-  client: CDPSession,
-  remoteObject: Protocol.Runtime.RemoteObject
-): Promise<void> {
-  if (!remoteObject.objectId) {
-    return;
+export const getSourcePuppeteerURLIfAvailable = <
+  T extends NonNullable<unknown>,
+>(
+  object: T,
+): PuppeteerURL | undefined => {
+  if (Object.prototype.hasOwnProperty.call(object, SOURCE_URL)) {
+    return object[SOURCE_URL as keyof T] as PuppeteerURL;
   }
-  await client
-    .send('Runtime.releaseObject', {objectId: remoteObject.objectId})
-    .catch(error => {
-      // Exceptions might happen in case of a page been navigated or closed.
-      // Swallow these since they are harmless and we don't leak anything in this case.
-      debugError(error);
-    });
-}
-
-/**
- * @internal
- */
-export interface PuppeteerEventListener {
-  emitter: CommonEventEmitter;
-  eventName: string | symbol;
-  handler: (...args: any[]) => void;
-}
-
-/**
- * @internal
- */
-export function addEventListener(
-  emitter: CommonEventEmitter,
-  eventName: string | symbol,
-  handler: (...args: any[]) => void
-): PuppeteerEventListener {
-  emitter.on(eventName, handler);
-  return {emitter, eventName, handler};
-}
-
-/**
- * @internal
- */
-export function removeEventListeners(
-  listeners: Array<{
-    emitter: CommonEventEmitter;
-    eventName: string | symbol;
-    handler: (...args: any[]) => void;
-  }>
-): void {
-  for (const listener of listeners) {
-    listener.emitter.removeListener(listener.eventName, listener.handler);
-  }
-  listeners.length = 0;
-}
+  return undefined;
+};
 
 /**
  * @internal
@@ -162,71 +150,29 @@ export const isNumber = (obj: unknown): obj is number => {
 /**
  * @internal
  */
-export async function waitForEvent<T>(
-  emitter: CommonEventEmitter,
-  eventName: string | symbol,
-  predicate: (event: T) => Promise<boolean> | boolean,
-  timeout: number,
-  abortPromise: Promise<Error>
-): Promise<T> {
-  let eventTimeout: NodeJS.Timeout;
-  let resolveCallback: (value: T | PromiseLike<T>) => void;
-  let rejectCallback: (value: Error) => void;
-  const promise = new Promise<T>((resolve, reject) => {
-    resolveCallback = resolve;
-    rejectCallback = reject;
-  });
-  const listener = addEventListener(emitter, eventName, async event => {
-    if (!(await predicate(event))) {
-      return;
-    }
-    resolveCallback(event);
-  });
-  if (timeout) {
-    eventTimeout = setTimeout(() => {
-      rejectCallback(
-        new TimeoutError('Timeout exceeded while waiting for event')
-      );
-    }, timeout);
-  }
-  function cleanup(): void {
-    removeEventListeners([listener]);
-    clearTimeout(eventTimeout);
-  }
-  const result = await Promise.race([promise, abortPromise]).then(
-    r => {
-      cleanup();
-      return r;
-    },
-    error => {
-      cleanup();
-      throw error;
-    }
-  );
-  if (isErrorLike(result)) {
-    throw result;
-  }
-
-  return result;
-}
+export const isPlainObject = (obj: unknown): obj is Record<any, unknown> => {
+  return typeof obj === 'object' && obj?.constructor === Object;
+};
 
 /**
  * @internal
  */
-export function createJSHandle(
-  context: ExecutionContext,
-  remoteObject: Protocol.Runtime.RemoteObject
-): JSHandle | ElementHandle<Node> {
-  if (remoteObject.subtype === 'node' && context._world) {
-    return new ElementHandle(context, remoteObject, context._world.frame());
-  }
-  return new JSHandle(context, remoteObject);
-}
+export const isRegExp = (obj: unknown): obj is RegExp => {
+  return typeof obj === 'object' && obj?.constructor === RegExp;
+};
+
+/**
+ * @internal
+ */
+export const isDate = (obj: unknown): obj is Date => {
+  return typeof obj === 'object' && obj?.constructor === Date;
+};
 
 /**
  * @internal
  */
 export function evaluationString(
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
   fun: Function | string,
   ...args: unknown[]
 ): string {
@@ -248,162 +194,43 @@ export function evaluationString(
 /**
  * @internal
  */
-export function pageBindingInitString(type: string, name: string): string {
-  function addPageBinding(type: string, name: string): void {
-    // This is the CDP binding.
-    // @ts-expect-error: In a different context.
-    const callCDP = self[name];
-
-    // We replace the CDP binding with a Puppeteer binding.
-    Object.assign(self, {
-      [name](...args: unknown[]): Promise<unknown> {
-        // This is the Puppeteer binding.
-        // @ts-expect-error: In a different context.
-        const callPuppeteer = self[name];
-        callPuppeteer.callbacks ??= new Map();
-        const seq = (callPuppeteer.lastSeq ?? 0) + 1;
-        callPuppeteer.lastSeq = seq;
-        callCDP(JSON.stringify({type, name, seq, args}));
-        return new Promise((resolve, reject) => {
-          callPuppeteer.callbacks.set(seq, {resolve, reject});
-        });
-      },
-    });
-  }
-  return evaluationString(addPageBinding, type, name);
-}
-
-/**
- * @internal
- */
-export function pageBindingDeliverResultString(
-  name: string,
-  seq: number,
-  result: unknown
-): string {
-  function deliverResult(name: string, seq: number, result: unknown): void {
-    (window as any)[name].callbacks.get(seq).resolve(result);
-    (window as any)[name].callbacks.delete(seq);
-  }
-  return evaluationString(deliverResult, name, seq, result);
-}
-
-/**
- * @internal
- */
-export function pageBindingDeliverErrorString(
-  name: string,
-  seq: number,
-  message: string,
-  stack?: string
-): string {
-  function deliverError(
-    name: string,
-    seq: number,
-    message: string,
-    stack?: string
-  ): void {
-    const error = new Error(message);
-    error.stack = stack;
-    (window as any)[name].callbacks.get(seq).reject(error);
-    (window as any)[name].callbacks.delete(seq);
-  }
-  return evaluationString(deliverError, name, seq, message, stack);
-}
-
-/**
- * @internal
- */
-export function pageBindingDeliverErrorValueString(
-  name: string,
-  seq: number,
-  value: unknown
-): string {
-  function deliverErrorValue(name: string, seq: number, value: unknown): void {
-    (window as any)[name].callbacks.get(seq).reject(value);
-    (window as any)[name].callbacks.delete(seq);
-  }
-  return evaluationString(deliverErrorValue, name, seq, value);
-}
-
-/**
- * @internal
- */
-export async function waitWithTimeout<T>(
-  promise: Promise<T>,
-  taskName: string,
-  timeout: number
-): Promise<T> {
-  let reject: (reason?: Error) => void;
-  const timeoutError = new TimeoutError(
-    `waiting for ${taskName} failed: timeout ${timeout}ms exceeded`
-  );
-  const timeoutPromise = new Promise<T>((_res, rej) => {
-    return (reject = rej);
-  });
-  let timeoutTimer = null;
-  if (timeout) {
-    timeoutTimer = setTimeout(() => {
-      return reject(timeoutError);
-    }, timeout);
-  }
-  try {
-    return await Promise.race([promise, timeoutPromise]);
-  } finally {
-    if (timeoutTimer) {
-      clearTimeout(timeoutTimer);
-    }
-  }
-}
-
-/**
- * @internal
- */
-let fs: typeof import('fs') | null = null;
-/**
- * @internal
- */
-export async function importFS(): Promise<typeof import('fs')> {
-  if (!fs) {
-    fs = await import('fs');
-  }
-  return fs;
-}
-
-/**
- * @internal
- */
-export async function getReadableAsBuffer(
-  readable: Readable,
-  path?: string
-): Promise<Buffer | null> {
-  const buffers = [];
+export async function getReadableAsTypedArray(
+  readable: ReadableStream<Uint8Array>,
+  path?: string,
+): Promise<Uint8Array | null> {
+  const buffers: Uint8Array[] = [];
+  const reader = readable.getReader();
   if (path) {
-    let fs: typeof import('fs').promises;
+    const fileHandle = await environment.value.fs.promises.open(path, 'w+');
     try {
-      fs = (await importFS()).promises;
-    } catch (error) {
-      if (error instanceof TypeError) {
-        throw new Error(
-          'Cannot write to a path outside of a Node-like environment.'
-        );
+      while (true) {
+        const {done, value} = await reader.read();
+        if (done) {
+          break;
+        }
+        buffers.push(value);
+        await fileHandle.writeFile(value);
       }
-      throw error;
+    } finally {
+      await fileHandle.close();
     }
-    const fileHandle = await fs.open(path, 'w+');
-    for await (const chunk of readable) {
-      buffers.push(chunk);
-      await fileHandle.writeFile(chunk);
-    }
-    await fileHandle.close();
   } else {
-    for await (const chunk of readable) {
-      buffers.push(chunk);
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) {
+        break;
+      }
+      buffers.push(value);
     }
   }
   try {
-    return Buffer.concat(buffers);
+    const concat = mergeUint8Arrays(buffers);
+    if (concat.length === 0) {
+      return null;
+    }
+    return concat;
   } catch (error) {
+    debugError(error);
     return null;
   }
 }
@@ -411,32 +238,254 @@ export async function getReadableAsBuffer(
 /**
  * @internal
  */
+
+/**
+ * @internal
+ */
 export async function getReadableFromProtocolStream(
   client: CDPSession,
-  handle: string
-): Promise<Readable> {
-  // TODO: Once Node 18 becomes the lowest supported version, we can migrate to
-  // ReadableStream.
-  if (!isNode) {
-    throw new Error('Cannot create a stream outside of Node.js environment.');
-  }
-
-  const {Readable} = await import('stream');
-
-  let eof = false;
-  return new Readable({
-    async read(size: number) {
-      if (eof) {
-        return;
+  handle: string,
+): Promise<ReadableStream<Uint8Array>> {
+  return new ReadableStream({
+    async pull(controller) {
+      function getUnit8Array(data: string, isBase64: boolean): Uint8Array {
+        if (isBase64) {
+          return Uint8Array.from(atob(data), m => {
+            return m.codePointAt(0)!;
+          });
+        }
+        const encoder = new TextEncoder();
+        return encoder.encode(data);
       }
 
-      const response = await client.send('IO.read', {handle, size});
-      this.push(response.data, response.base64Encoded ? 'base64' : undefined);
-      if (response.eof) {
-        eof = true;
+      const {data, base64Encoded, eof} = await client.send('IO.read', {
+        handle,
+      });
+
+      controller.enqueue(getUnit8Array(data, base64Encoded ?? false));
+      if (eof) {
         await client.send('IO.close', {handle});
-        this.push(null);
+        controller.close();
       }
     },
+  });
+}
+
+/**
+ * @internal
+ */
+export function validateDialogType(
+  type: string,
+): 'alert' | 'confirm' | 'prompt' | 'beforeunload' {
+  let dialogType = null;
+  const validDialogTypes = new Set([
+    'alert',
+    'confirm',
+    'prompt',
+    'beforeunload',
+  ]);
+
+  if (validDialogTypes.has(type)) {
+    dialogType = type;
+  }
+  assert(dialogType, `Unknown javascript dialog type: ${type}`);
+  return dialogType as 'alert' | 'confirm' | 'prompt' | 'beforeunload';
+}
+
+/**
+ * @internal
+ */
+export function timeout(ms: number, cause?: Error): Observable<never> {
+  return ms === 0
+    ? NEVER
+    : timer(ms).pipe(
+        map(() => {
+          throw new TimeoutError(`Timed out after waiting ${ms}ms`, {cause});
+        }),
+      );
+}
+
+/**
+ * @internal
+ */
+export const UTILITY_WORLD_NAME =
+  '__puppeteer_utility_world__' + packageVersion;
+
+/**
+ * @internal
+ */
+export const SOURCE_URL_REGEX =
+  /^[\x20\t]*\/\/[@#] sourceURL=\s{0,10}(\S*?)\s{0,10}$/m;
+/**
+ * @internal
+ */
+export function getSourceUrlComment(url: string): string {
+  return `//# sourceURL=${url}`;
+}
+
+/**
+ * @internal
+ */
+export const NETWORK_IDLE_TIME = 500;
+
+/**
+ * @internal
+ */
+export function parsePDFOptions(
+  options: PDFOptions = {},
+  lengthUnit: 'in' | 'cm' = 'in',
+): ParsedPDFOptions {
+  const defaults: Omit<ParsedPDFOptions, 'width' | 'height' | 'margin'> = {
+    scale: 1,
+    displayHeaderFooter: false,
+    headerTemplate: '',
+    footerTemplate: '',
+    printBackground: false,
+    landscape: false,
+    pageRanges: '',
+    preferCSSPageSize: false,
+    omitBackground: false,
+    outline: false,
+    tagged: true,
+    waitForFonts: true,
+  };
+
+  let width = 8.5;
+  let height = 11;
+  if (options.format) {
+    const format =
+      paperFormats[options.format.toLowerCase() as LowerCasePaperFormat][
+        lengthUnit
+      ];
+    assert(format, 'Unknown paper format: ' + options.format);
+    width = format.width;
+    height = format.height;
+  } else {
+    width = convertPrintParameterToInches(options.width, lengthUnit) ?? width;
+    height =
+      convertPrintParameterToInches(options.height, lengthUnit) ?? height;
+  }
+
+  const margin = {
+    top: convertPrintParameterToInches(options.margin?.top, lengthUnit) || 0,
+    left: convertPrintParameterToInches(options.margin?.left, lengthUnit) || 0,
+    bottom:
+      convertPrintParameterToInches(options.margin?.bottom, lengthUnit) || 0,
+    right:
+      convertPrintParameterToInches(options.margin?.right, lengthUnit) || 0,
+  };
+
+  // Quirk https://bugs.chromium.org/p/chromium/issues/detail?id=840455#c44
+  if (options.outline) {
+    options.tagged = true;
+  }
+
+  return {
+    ...defaults,
+    ...options,
+    width,
+    height,
+    margin,
+  };
+}
+
+/**
+ * @internal
+ */
+export const unitToPixels = {
+  px: 1,
+  in: 96,
+  cm: 37.8,
+  mm: 3.78,
+};
+
+function convertPrintParameterToInches(
+  parameter?: string | number,
+  lengthUnit: 'in' | 'cm' = 'in',
+): number | undefined {
+  if (typeof parameter === 'undefined') {
+    return undefined;
+  }
+  let pixels;
+  if (isNumber(parameter)) {
+    // Treat numbers as pixel values to be aligned with phantom's paperSize.
+    pixels = parameter;
+  } else if (isString(parameter)) {
+    const text = parameter;
+    let unit = text.substring(text.length - 2).toLowerCase();
+    let valueText = '';
+    if (unit in unitToPixels) {
+      valueText = text.substring(0, text.length - 2);
+    } else {
+      // In case of unknown unit try to parse the whole parameter as number of pixels.
+      // This is consistent with phantom's paperSize behavior.
+      unit = 'px';
+      valueText = text;
+    }
+    const value = Number(valueText);
+    assert(!isNaN(value), 'Failed to parse parameter value: ' + text);
+    pixels = value * unitToPixels[unit as keyof typeof unitToPixels];
+  } else {
+    throw new Error(
+      'page.pdf() Cannot handle parameter type: ' + typeof parameter,
+    );
+  }
+  return pixels / unitToPixels[lengthUnit];
+}
+
+/**
+ * @internal
+ */
+export function fromEmitterEvent<
+  Events extends Record<EventType, unknown>,
+  Event extends keyof Events,
+>(emitter: EventEmitter<Events>, eventName: Event): Observable<Events[Event]> {
+  return new Observable(subscriber => {
+    const listener = (event: Events[Event]) => {
+      subscriber.next(event);
+    };
+    emitter.on(eventName, listener);
+    return () => {
+      emitter.off(eventName, listener);
+    };
+  });
+}
+
+/**
+ * @internal
+ */
+export function fromAbortSignal(
+  signal?: AbortSignal,
+  cause?: Error,
+): Observable<never> {
+  return signal
+    ? fromEvent(signal, 'abort').pipe(
+        map(() => {
+          if (signal.reason instanceof Error) {
+            signal.reason.cause = cause;
+            throw signal.reason;
+          }
+
+          throw new Error(signal.reason, {cause});
+        }),
+      )
+    : NEVER;
+}
+
+/**
+ * @internal
+ */
+export function filterAsync<T>(
+  predicate: (value: T) => boolean | PromiseLike<boolean>,
+): OperatorFunction<T, T> {
+  return mergeMap<T, Observable<T>>((value): Observable<T> => {
+    return from(Promise.resolve(predicate(value))).pipe(
+      filter(isMatch => {
+        return isMatch;
+      }),
+      map(() => {
+        return value;
+      }),
+    );
   });
 }

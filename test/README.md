@@ -25,7 +25,7 @@ The best place to look is an existing test to see how they use the helpers.
 
 ## Skipping tests in specific conditions
 
-To skip tests edit the [TestExpecations](https://github.com/puppeteer/puppeteer/blob/main/test/TestExpectations.json) file. See [test runner documentation](https://github.com/puppeteer/puppeteer/tree/main/tools/mochaRunner) for more details.
+To skip tests edit the [TestExpectations](https://github.com/puppeteer/puppeteer/blob/main/test/TestExpectations.json) file. See [test runner documentation](https://github.com/puppeteer/puppeteer/tree/main/tools/mocha-runner) for more details.
 
 ## Running tests
 
@@ -38,15 +38,31 @@ npm test
 - **Important**: don't forget to first build the code if you're testing local changes:
 
 ```bash
-npm run build && npm test
+npm run build --workspace=@puppeteer-test/test && npm test
 ```
+
+### CLI options
+
+| Description                                                       | Option           | Type    |
+| ----------------------------------------------------------------- | ---------------- | ------- |
+| Do not generate coverage report                                   | --no-coverage    | boolean |
+| Do not generate suggestion for updating TestExpectation.json file | --no-suggestions | boolean |
+| Specify a file to which to save run data                          | --save-stats-to  | string  |
+| Specify a file with a custom Mocha reporter                       | --reporter       | string  |
+| Number of times to retry failed tests.                            | --retries        | number  |
+| Timeout threshold value.                                          | --timeout        | number  |
+| Tell Mocha to not run test files in parallel                      | --no-parallel    | boolean |
+| Generate full stacktrace upon failure                             | --fullTrace      | boolean |
+| Name of the Test suit defined in TestSuites.json                  | --test-suite     | string  |
+
+### Helpful information
 
 - To run a specific test, substitute the `it` with `it.only`:
 
 ```ts
   ...
   it.only('should work', async function() {
-    const {server, page} = getTestState();
+    const {server, page} = await getTestState();
     const response = await page.goto(server.EMPTY_PAGE);
     expect(response.ok).toBe(true);
   });
@@ -57,7 +73,7 @@ npm run build && npm test
 ```ts
   ...
   it.skip('should work', async function({server, page}) {
-    const {server, page} = getTestState();
+    const {server, page} = await getTestState();
     const response = await page.goto(server.EMPTY_PAGE);
     expect(response.ok).toBe(true);
   });
