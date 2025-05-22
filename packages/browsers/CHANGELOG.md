@@ -1,5 +1,34 @@
 # Changelog
 
+## [2.10.5](https://github.com/puppeteer/puppeteer/compare/browsers-v2.10.4...browsers-v2.10.5) (2025-05-20)
+
+
+### Bug Fixes
+
+* don't expect extra arguments ([#13886](https://github.com/puppeteer/puppeteer/issues/13886)) ([fd4e8d3](https://github.com/puppeteer/puppeteer/commit/fd4e8d38385ae8d3ab4dfbf135611c6489e26d19))
+
+## [2.10.4](https://github.com/puppeteer/puppeteer/compare/browsers-v2.10.3...browsers-v2.10.4) (2025-05-07)
+
+
+### Bug Fixes
+
+* decode URL before parsing ([#13857](https://github.com/puppeteer/puppeteer/issues/13857)) ([c747eb8](https://github.com/puppeteer/puppeteer/commit/c747eb882ca3825d65167b13ebf1e016ccbbaf9b))
+
+## [2.10.3](https://github.com/puppeteer/puppeteer/compare/browsers-v2.10.2...browsers-v2.10.3) (2025-05-02)
+
+
+### Bug Fixes
+
+* explicitly configure version in yargs ([#13830](https://github.com/puppeteer/puppeteer/issues/13830)) ([6983da9](https://github.com/puppeteer/puppeteer/commit/6983da941ef35dea8c867e112fd6b1585ecb16ee))
+
+## [2.10.2](https://github.com/puppeteer/puppeteer/compare/browsers-v2.10.1...browsers-v2.10.2) (2025-04-22)
+
+
+### Bug Fixes
+
+* revert makeProgressCallback changes ([#13800](https://github.com/puppeteer/puppeteer/issues/13800)) ([f04ef25](https://github.com/puppeteer/puppeteer/commit/f04ef250c191d275942d60851640e69cddba70e2))
+* support default download callback option in install() ([#13801](https://github.com/puppeteer/puppeteer/issues/13801)) ([334e7ff](https://github.com/puppeteer/puppeteer/commit/334e7ff4615ee11dc29abcb94368236c65cf39d1))
+
 ## [2.10.1](https://github.com/puppeteer/puppeteer/compare/browsers-v2.10.0...browsers-v2.10.1) (2025-04-22)
 
 
