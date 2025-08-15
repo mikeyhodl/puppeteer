@@ -171,7 +171,7 @@
     "eslint-plugin-rulesdir": "0.2.2",
     "eslint-plugin-tsdoc": "0.4.0",
     "eslint-plugin-unused-imports": "4.1.4",
-    "eslint": "9.31.0",
+    "eslint": "9.33.0",
     "execa": "9.6.0",
     "expect": "30.0.5",
     "globals": "16.3.0",
@@ -186,7 +186,7 @@
     "source-map-support": "0.5.21",
     "spdx-satisfies": "6.0.0",
     "tsd": "0.33.0",
-    "typescript": "5.8.3",
+    "typescript": "5.9.2",
     "wireit": "0.14.12",
     "yargs": "18.0.0"
   },
