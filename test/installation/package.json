@@ -57,6 +57,8 @@
   },
   "dependencies": {
     "diff": "^9.0.0",
-    "webmcp-types": "^0.1.9"
+    "mime": "^4.1.1",
+    "pixelmatch": "^8.0.0",
+    "webmcp-types": "^0.1.10"
   }
 }
